@@ -13,8 +13,10 @@
 *.ilk
 
 # 输出文件（保留output文件夹结构，但忽略临时文件）
-output/*.txt
-!output/.gitkeep
+# 允许提交结果文件用于对比分析
+# output/*.txt
+# !output/histogram_cpu.txt
+# !output/histogram_gpu.txt
 
 # VS Code
 .vscode/
