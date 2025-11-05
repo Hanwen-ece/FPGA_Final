@@ -3,8 +3,8 @@
 # Image size: 3840x2160
 # Iterations: 1000
 # Kernel: Local Memory (optimized)
-# Execution time: 338.143 ms
-# Throughput: 24529.26 MPixels/s
+# Total execution time: 211.772 ms (0.212 seconds)
+# Throughput: 39166.66 MPixels/s
 0 32400
 1 32400
 2 32400

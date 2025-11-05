@@ -1,4 +1,8 @@
 # Histogram Data (Bin, Count)
+# Platform: CPU
+# Image size: 3840x2160
+# Iterations: 1000
+# Total execution time: 6712.563 ms (6.713 seconds)
 0 32400
 1 32400
 2 32400

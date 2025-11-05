@@ -46,7 +46,7 @@ void compute_histogram_cpu(unsigned char *image, int size, unsigned int *histogr
 }
 
 // 保存直方图到文件
-void save_histogram_txt(unsigned int *histogram, const char *filename)
+void save_histogram_txt(unsigned int *histogram, const char *filename, double total_time, int width, int height, int iterations)
 {
     FILE *fp = fopen(filename, "w");
     if (!fp)
@@ -56,6 +56,10 @@ void save_histogram_txt(unsigned int *histogram, const char *filename)
     }
 
     fprintf(fp, "# Histogram Data (Bin, Count)\n");
+    fprintf(fp, "# Platform: CPU\n");
+    fprintf(fp, "# Image size: %dx%d\n", width, height);
+    fprintf(fp, "# Iterations: %d\n", iterations);
+    fprintf(fp, "# Total execution time: %.3f ms (%.3f seconds)\n", total_time, total_time / 1000.0);
     for (int i = 0; i < HISTOGRAM_BINS; i++)
     {
         fprintf(fp, "%d %u\n", i, histogram[i]);
@@ -166,8 +170,9 @@ int main(int argc, char **argv)
     printf("Bandwidth: %.2f GB/s\n", total_data / (total_time / 1000.0));
 
     // 保存最后一次结果
-    save_histogram_txt(histogram, "output/histogram_cpu.txt");
+    save_histogram_txt(histogram, "output/histogram_cpu.txt", total_time, width, height, iterations);
     printf("\nHistogram saved to output/histogram_cpu.txt\n");
+    printf("Total execution time: %.3f ms (%.3f seconds)\n", total_time, total_time / 1000.0);
 
     // 打印部分统计信息
     printf("\nSample histogram values:\n");
