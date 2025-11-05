@@ -1,5 +1,0 @@
----
-triple:          'arm64-apple-darwin'
-binary-path:     '/Users/hanwen/Documents/NUS/5203/FPGA_Final/output/histogram'
-relocations:     []
-...

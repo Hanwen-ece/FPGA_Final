@@ -46,8 +46,17 @@ double get_time_ms() {
 // 读取kernel文件
 char* read_kernel_source(const char *filename) {
     FILE *fp = fopen(filename, "r");
+    // 如果找不到，尝试在 opencl 文件夹中查找
     if (!fp) {
-        fprintf(stderr, "Failed to load kernel file: %s\n", filename);
+        char alt_path[256];
+        snprintf(alt_path, sizeof(alt_path), "opencl/%s", filename);
+        fp = fopen(alt_path, "r");
+        if (fp) {
+            filename = alt_path;
+        }
+    }
+    if (!fp) {
+        fprintf(stderr, "Failed to load kernel file: %s (also tried opencl/%s)\n", filename, filename);
         exit(1);
     }
     char *source_str = (char*)malloc(MAX_SOURCE_SIZE);
@@ -171,7 +180,7 @@ int main(int argc, char **argv) {
     
     // 读取并编译kernel
     printf("Loading and compiling kernels...\n");
-    char *kernel_source = read_kernel_source("histogram_kernel.cl");
+    char *kernel_source = read_kernel_source("opencl/histogram.cl");
     size_t source_size = strlen(kernel_source);
     
     cl_program program = clCreateProgramWithSource(context, 1, (const char **)&kernel_source, 

@@ -1,0 +1,132 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build OpenCL GPU",
+      "type": "shell",
+      "command": "g++",
+      "args": [
+        "-fdiagnostics-color=always",
+        "-g",
+        "-Wall",
+        "opencl/histogram_gpu.c",
+        "-ID:/OpenCL/OpenCL-SDK-v2025.07.23-Win-x64/include",
+        "-LD:/OpenCL/OpenCL-SDK-v2025.07.23-Win-x64/lib",
+        "-lOpenCL",
+        "-o",
+        "${workspaceFolder}/histogram_gpu.exe"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared",
+        "showReuseMessage": true,
+        "clear": false
+      },
+      "detail": "Build OpenCL GPU version with OpenCL SDK"
+    },
+    {
+      "label": "build CPU",
+      "type": "shell",
+      "command": "g++",
+      "args": [
+        "-fdiagnostics-color=always",
+        "-g",
+        "-Wall",
+        "histogram_cpu.c",
+        "-o",
+        "${workspaceFolder}/histogram_cpu.exe"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "detail": "Build CPU version"
+    },
+    {
+      "label": "C/C++: g++ build active file (Windows)",
+      "type": "cppbuild",
+      "command": "g++",
+      "args": [
+        "-fdiagnostics-color=always",
+        "-g",
+        "${file}",
+        "-ID:/OpenCL/OpenCL-SDK-v2025.07.23-Win-x64/include",
+        "-LD:/OpenCL/OpenCL-SDK-v2025.07.23-Win-x64/lib",
+        "-lOpenCL",
+        "-o",
+        "${fileDirname}/${fileBasenameNoExtension}.exe"
+      ],
+      "options": {
+        "cwd": "${fileDirname}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "detail": "Windows g++ build task with OpenCL linkage for active file"
+    },
+    {
+      "label": "C/C++: g++ build active file (Linux)",
+      "type": "cppbuild",
+      "command": "g++",
+      "args": [
+        "-fdiagnostics-color=always",
+        "-g",
+        "${file}",
+        "-lOpenCL",
+        "-o",
+        "${fileDirname}/${fileBasenameNoExtension}.out"
+      ],
+      "options": {
+        "cwd": "${fileDirname}"
+      },
+      "problemMatcher": [
+        "$gcc"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "detail": "Linux g++ build task with OpenCL linkage for active file"
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "rm",
+      "args": [
+        "-f",
+        "${workspaceFolder}/*.exe",
+        "${workspaceFolder}/*.out"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "Clean build artifacts"
+    }
+  ]
+}

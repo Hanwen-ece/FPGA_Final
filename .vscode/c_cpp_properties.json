@@ -1,0 +1,58 @@
+{
+  "configurations": [
+    {
+      "name": "Win32",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "D:/OpenCL/OpenCL-SDK-v2025.07.23-Win-x64/include",
+        "C:/msys64/ucrt64/include",
+        "C:/OpenCLSDK/include",
+        "C:/TDM-GCC-64/include",
+        "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/*/include",
+        "C:/Program Files (x86)/Intel/OpenCL SDK/*/include",
+        "C:/Program Files/AMD/AMDAPPSDK/*/include"
+      ],
+      "defines": [
+        "_DEBUG",
+        "UNICODE",
+        "_UNICODE"
+      ],
+      "windowsSdkVersion": "10.0.19041.0",
+      "compilerPath": "C:/TDM-GCC-64/bin/g++.exe",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "windows-gcc-x64",
+      "browse": {
+        "path": [
+          "${workspaceFolder}/**",
+          "D:/OpenCL/OpenCL-SDK-v2025.07.23-Win-x64/include",
+          "C:/TDM-GCC-64/include"
+        ],
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "configurationProvider": "ms-vscode.cmake-tools"
+    },
+    {
+      "name": "Linux",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "/usr/include",
+        "/usr/local/include"
+      ],
+      "defines": [],
+      "compilerPath": "/usr/bin/g++",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "linux-gcc-x64",
+      "browse": {
+        "path": [
+          "${workspaceFolder}/**",
+          "/usr/include",
+          "/usr/local/include"
+        ],
+        "limitSymbolsToIncludedHeaders": false
+      }
+    }
+  ],
+  "version": 4
+}
