@@ -33,7 +33,7 @@ void compute_histogram_hls(
     }
 }
 
-// 使用 AXI Stream 接口的版本（用于 DMA）
+// 使用 AXI Stream 接口的版本（用于 DMA）- 优化热区域
 void compute_histogram_axi_stream(
     hls::stream<ap_axiu<32, 0, 0, 0> >& image_stream,
     hls::stream<ap_axiu<32, 0, 0, 0> >& histogram_stream,
@@ -44,18 +44,19 @@ void compute_histogram_axi_stream(
     #pragma HLS INTERFACE s_axilite port=image_size bundle=control
     #pragma HLS INTERFACE s_axilite port=return bundle=control
     
-    // 局部直方图
+    // 优化热区域：使用完全分区（complete）来减少写冲突
+    // 每个bin使用独立的BRAM，提高并行度
     static unsigned int histogram_local[HISTOGRAM_BINS];
-    #pragma HLS ARRAY_PARTITION variable=histogram_local cyclic factor=4
+    #pragma HLS ARRAY_PARTITION variable=histogram_local complete
     
-    // 初始化
+    // 初始化 - 优化：使用循环展开加快初始化
     INIT_LOOP: for (int i = 0; i < HISTOGRAM_BINS; i++) {
-        #pragma HLS UNROLL factor=4
+        #pragma HLS UNROLL
         histogram_local[i] = 0;
     }
     
-    // 处理图像数据
-    // 注意：AXI Stream 每次传输32位，包含4个像素（每个8位）
+    // 处理图像数据 - 热区域优化
+    // AXI Stream 每次传输32位，包含4个像素（每个8位）
     int pixels_per_transfer = 4;
     int transfers = (image_size + pixels_per_transfer - 1) / pixels_per_transfer;
     
@@ -64,11 +65,19 @@ void compute_histogram_axi_stream(
         ap_axiu<32, 0, 0, 0> data = image_stream.read();
         ap_uint<32> pixel_data = data.data;
         
-        // 提取4个像素值
-        for (int j = 0; j < pixels_per_transfer && (i * pixels_per_transfer + j) < image_size; j++) {
-            ap_uint<8> pixel_value = pixel_data.range(7 + j*8, j*8);
-            histogram_local[pixel_value]++;
-        }
+        // 优化：并行提取4个像素值，减少循环依赖
+        ap_uint<8> pixel0 = pixel_data.range(7, 0);
+        ap_uint<8> pixel1 = pixel_data.range(15, 8);
+        ap_uint<8> pixel2 = pixel_data.range(23, 16);
+        ap_uint<8> pixel3 = pixel_data.range(31, 24);
+        
+        // 热区域：并行更新直方图（使用完全分区，每个bin独立BRAM，避免冲突）
+        int base_idx = i * pixels_per_transfer;
+        
+        if (base_idx < image_size) histogram_local[pixel0]++;
+        if (base_idx + 1 < image_size) histogram_local[pixel1]++;
+        if (base_idx + 2 < image_size) histogram_local[pixel2]++;
+        if (base_idx + 3 < image_size) histogram_local[pixel3]++;
     }
     
     // 输出结果
@@ -94,21 +103,22 @@ void compute_histogram_axi_master(
     #pragma HLS INTERFACE s_axilite port=image_size bundle=control
     #pragma HLS INTERFACE s_axilite port=return bundle=control
     
-    // 局部直方图（BRAM）
+    // 优化热区域：使用完全分区减少写冲突
     static unsigned int histogram_local[HISTOGRAM_BINS];
-    #pragma HLS ARRAY_PARTITION variable=histogram_local cyclic factor=4
+    #pragma HLS ARRAY_PARTITION variable=histogram_local complete
     
-    // 初始化
+    // 初始化 - 优化：完全展开
     INIT_LOOP: for (int i = 0; i < HISTOGRAM_BINS; i++) {
-        #pragma HLS UNROLL factor=4
+        #pragma HLS UNROLL
         histogram_local[i] = 0;
     }
     
-    // 处理图像数据
+    // 处理图像数据 - 热区域优化
+    // 使用流水线提高吞吐量
     PROCESS_LOOP: for (int i = 0; i < image_size; i++) {
         #pragma HLS PIPELINE II=1
         unsigned char pixel_value = image_data[i];
-        histogram_local[pixel_value]++;
+        histogram_local[pixel_value]++;  // 热区域：每个bin独立BRAM，无冲突
     }
     
     // 写回结果
