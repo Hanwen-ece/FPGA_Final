@@ -1,7 +1,6 @@
 // HLS Testbench for Histogram Computation
 // 用于 Vitis HLS 综合和仿真的测试平台
 
-#include "histogram_hls.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,150 +9,154 @@
 #define TEST_IMAGE_WIDTH 1920
 #define TEST_IMAGE_HEIGHT 1080
 
-// 测试 AXI Master 接口
-int test_axi_master() {
-    printf("\n=== Testing AXI Master Interface ===\n");
+#include "ap_int.h"
+#include "ap_axi_sdata.h"
+#include "hls_stream.h"
+
+#define HISTOGRAM_BINS 256
+
+
+
+// Testbench for Histogram HLS
+#include "ap_int.h"
+#include "ap_axi_sdata.h"
+#include "hls_stream.h"
+#include <iostream>
+#include <cstdlib>
+
+#define HISTOGRAM_BINS 256
+#define IMAGE_WIDTH 32
+#define IMAGE_HEIGHT 32
+#define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_HEIGHT)
+
+// 函数声明
+void Hanwenip_v1_0_HLS(
+    hls::stream<ap_axiu<32, 0, 0, 0> >& image_stream,
+    hls::stream<ap_axiu<32, 0, 0, 0> >& histogram_stream
+);
+
+int main() {
+    std::cout << "=== Histogram HLS Testbench ===" << std::endl;
+    std::cout << "Image size: " << IMAGE_WIDTH << "x" << IMAGE_HEIGHT 
+              << " = " << IMAGE_SIZE << " pixels" << std::endl;
     
-    int image_size = TEST_IMAGE_WIDTH * TEST_IMAGE_HEIGHT;
-    unsigned char *image_data = (unsigned char*)malloc(image_size);
-    unsigned int *histogram_result = (unsigned int*)malloc(HISTOGRAM_BINS * sizeof(unsigned int));
-    unsigned int *histogram_reference = (unsigned int*)malloc(HISTOGRAM_BINS * sizeof(unsigned int));
-    
-    // 生成测试图像
-    for (int i = 0; i < image_size; i++) {
-        image_data[i] = (i * 13 + 7) % 256;  // 与 Python 代码保持一致
-    }
-    
-    // 计算参考直方图（CPU版本）
-    memset(histogram_reference, 0, HISTOGRAM_BINS * sizeof(unsigned int));
-    for (int i = 0; i < image_size; i++) {
-        histogram_reference[image_data[i]]++;
-    }
-    
-    // 调用 HLS 函数
-    compute_histogram_axi_master(image_data, histogram_result, image_size);
-    
-    // 验证结果
-    int errors = 0;
-    for (int i = 0; i < HISTOGRAM_BINS; i++) {
-        if (histogram_result[i] != histogram_reference[i]) {
-            if (errors < 10) {
-                printf("Error at bin %d: expected %u, got %u\n", 
-                       i, histogram_reference[i], histogram_result[i]);
-            }
-            errors++;
+    // 创建测试图像
+    unsigned char test_image[IMAGE_SIZE];
+    for (int i = 0; i < IMAGE_HEIGHT; i++) {
+        for (int j = 0; j < IMAGE_WIDTH; j++) {
+            test_image[i * IMAGE_WIDTH + j] = (i * 13 + j * 7) % 256;
         }
     }
     
-    if (errors == 0) {
-        printf("AXI Master Test PASSED!\n");
-    } else {
-        printf("AXI Master Test FAILED: %d errors found\n", errors);
+    // 计算CPU参考结果
+    unsigned int cpu_histogram[HISTOGRAM_BINS] = {0};
+    for (int i = 0; i < IMAGE_SIZE; i++) {
+        cpu_histogram[test_image[i]]++;
     }
     
-    free(image_data);
-    free(histogram_result);
-    free(histogram_reference);
-    
-    return errors;
-}
-
-// 测试 AXI Stream 接口（用于 DMA）
-int test_axi_stream() {
-    printf("\n=== Testing AXI Stream Interface (for DMA) ===\n");
-    
-    int image_size = TEST_IMAGE_WIDTH * TEST_IMAGE_HEIGHT;
-    unsigned char *image_data = (unsigned char*)malloc(image_size);
-    unsigned int *histogram_reference = (unsigned int*)malloc(HISTOGRAM_BINS * sizeof(unsigned int));
-    
-    // 生成测试图像
-    for (int i = 0; i < image_size; i++) {
-        image_data[i] = (i * 13 + 7) % 256;
-    }
-    
-    // 计算参考直方图
-    memset(histogram_reference, 0, HISTOGRAM_BINS * sizeof(unsigned int));
-    for (int i = 0; i < image_size; i++) {
-        histogram_reference[image_data[i]]++;
-    }
-    
-    // 创建 AXI Stream
+    // 准备输入流
     hls::stream<ap_axiu<32, 0, 0, 0> > image_stream;
     hls::stream<ap_axiu<32, 0, 0, 0> > histogram_stream;
     
-    // 将图像数据写入 stream（每32位包含4个像素）
-    int pixels_per_transfer = 4;
-    int transfers = (image_size + pixels_per_transfer - 1) / pixels_per_transfer;
+    int pixels_per_word = 4;
+    int num_words = (IMAGE_SIZE + pixels_per_word - 1) / pixels_per_word;
     
-    for (int i = 0; i < transfers; i++) {
+    std::cout << "Preparing input stream: " << num_words << " words" << std::endl;
+    
+    for (int i = 0; i < num_words; i++) {
         ap_axiu<32, 0, 0, 0> data;
-        ap_uint<32> pixel_data = 0;
         
-        for (int j = 0; j < pixels_per_transfer && (i * pixels_per_transfer + j) < image_size; j++) {
-            int idx = i * pixels_per_transfer + j;
-            pixel_data.range(7 + j*8, j*8) = image_data[idx];
+        // 打包4个像素到1个32位数据
+        int base_idx = i * pixels_per_word;
+        ap_uint<32> packed = 0;
+        
+        for (int j = 0; j < pixels_per_word; j++) {
+            int idx = base_idx + j;
+            if (idx < IMAGE_SIZE) {
+                packed.range((j+1)*8-1, j*8) = test_image[idx];
+            } else {
+                packed.range((j+1)*8-1, j*8) = 0;  // padding
+            }
         }
         
-        data.data = pixel_data;
-        data.last = (i == transfers - 1);
+        data.data = packed;
+        data.last = (i == num_words - 1) ? 1 : 0;  // 最后一个数据设置TLAST
+        data.keep = -1;
+        data.strb = -1;
         image_stream.write(data);
     }
     
-    // 调用 HLS 函数
-    compute_histogram_axi_stream(image_stream, histogram_stream, image_size);
+    // 调用HLS函数
+    std::cout << "Calling HLS function..." << std::endl;
+    Hanwenip_v1_0_HLS(image_stream, histogram_stream);
     
-    // 从 stream 读取结果
-    unsigned int histogram_result[HISTOGRAM_BINS];
-    for (int i = 0; i < HISTOGRAM_BINS; i++) {
-        ap_axiu<32, 0, 0, 0> data = histogram_stream.read();
-        histogram_result[i] = data.data;
-    }
-    
-    // 验证结果
+    // 读取并验证结果
+    std::cout << "Verifying results..." << std::endl;
     int errors = 0;
+    
     for (int i = 0; i < HISTOGRAM_BINS; i++) {
-        if (histogram_result[i] != histogram_reference[i]) {
+        ap_axiu<32, 0, 0, 0> output_data = histogram_stream.read();
+        unsigned int hw_value = output_data.data;
+        unsigned int cpu_value = cpu_histogram[i];
+        
+        if (hw_value != cpu_value) {
             if (errors < 10) {
-                printf("Error at bin %d: expected %u, got %u\n", 
-                       i, histogram_reference[i], histogram_result[i]);
+                std::cout << "Error at bin " << i << ": HW=" << hw_value 
+                         << ", CPU=" << cpu_value << std::endl;
             }
             errors++;
         }
     }
     
+    // 显示前10个结果
+    std::cout << "\nFirst 10 histogram values:" << std::endl;
+    std::cout << "Bin\tHW\tCPU\tMatch" << std::endl;
+    
+    // 重新运行以获取结果显示
+    for (int i = 0; i < num_words; i++) {
+        ap_axiu<32, 0, 0, 0> data;
+        int base_idx = i * pixels_per_word;
+        ap_uint<32> packed = 0;
+        
+        for (int j = 0; j < pixels_per_word; j++) {
+            int idx = base_idx + j;
+            if (idx < IMAGE_SIZE) {
+                packed.range((j+1)*8-1, j*8) = test_image[idx];
+            }
+        }
+        
+        data.data = packed;
+        data.last = (i == num_words - 1) ? 1 : 0;
+        data.keep = -1;
+        data.strb = -1;
+        image_stream.write(data);
+    }
+    
+    Hanwenip_v1_0_HLS(image_stream, histogram_stream);
+    
+    for (int i = 0; i < 10; i++) {
+        ap_axiu<32, 0, 0, 0> output_data = histogram_stream.read();
+        unsigned int hw_value = output_data.data;
+        std::cout << i << "\t" << hw_value << "\t" << cpu_histogram[i] 
+                 << "\t" << (hw_value == cpu_histogram[i] ? "✓" : "✗") << std::endl;
+    }
+    
+    // 清空剩余数据
+    for (int i = 10; i < HISTOGRAM_BINS; i++) {
+        histogram_stream.read();
+    }
+    
+    // 显示结果
     if (errors == 0) {
-        printf("AXI Stream Test PASSED!\n");
+        std::cout << "\n==================================" << std::endl;
+        std::cout << "    TEST PASSED!" << std::endl;
+        std::cout << "==================================" << std::endl;
+        return 0;
     } else {
-        printf("AXI Stream Test FAILED: %d errors found\n", errors);
+        std::cout << "\n==================================" << std::endl;
+        std::cout << "    TEST FAILED!" << std::endl;
+        std::cout << "    Errors: " << errors << std::endl;
+        std::cout << "==================================" << std::endl;
+        return 1;
     }
-    
-    free(image_data);
-    free(histogram_reference);
-    
-    return errors;
-}
-
-int main() {
-    printf("=== HLS Histogram Testbench ===\n");
-    printf("Image size: %dx%d (%d pixels)\n", 
-           TEST_IMAGE_WIDTH, TEST_IMAGE_HEIGHT, 
-           TEST_IMAGE_WIDTH * TEST_IMAGE_HEIGHT);
-    
-    int total_errors = 0;
-    
-    // 测试 AXI Master 接口
-    total_errors += test_axi_master();
-    
-    // 测试 AXI Stream 接口（用于 DMA）
-    total_errors += test_axi_stream();
-    
-    // 总结
-    printf("\n=== Test Summary ===\n");
-    if (total_errors == 0) {
-        printf("All tests PASSED!\n");
-    } else {
-        printf("Total errors: %d\n", total_errors);
-    }
-    
-    return (total_errors == 0) ? 0 : 1;
 }
