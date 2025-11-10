@@ -1,23 +1,19 @@
-"""
-PYNQ program for Histogram Computation using AXI DMA
-参考 lab3 的 pythonDMA.py 实现
-通过 DMA 连接 HLS IP 进行直方图计算
-"""
+
 from pynq import Overlay, allocate
 import numpy as np
 import time
 
-# --- 配置常量 ---
+# 配置常量
 HISTOGRAM_BINS = 256
-DEFAULT_WIDTH = 3840
-DEFAULT_HEIGHT = 2160
+IMAGE_WIDTH = 32
+IMAGE_HEIGHT = 32
+IMAGE_SIZE = IMAGE_WIDTH * IMAGE_HEIGHT  # 1024 pixels
 
 def create_test_image(width, height):
-    """生成测试图像数据"""
+    """生成测试图像（和HLS testbench相同的模式）"""
     image_size = width * height
     image_data = np.zeros(image_size, dtype=np.uint8)
     
-    # 生成渐变图案用于测试
     for i in range(height):
         for j in range(width):
             image_data[i * width + j] = (i * 13 + j * 7) % 256
@@ -25,184 +21,267 @@ def create_test_image(width, height):
     return image_data
 
 def compute_histogram_cpu(image_data):
-    """CPU版本的直方图计算（用于验证）"""
+    """CPU参考实现"""
     histogram = np.zeros(HISTOGRAM_BINS, dtype=np.uint32)
     for pixel in image_data:
         histogram[pixel] += 1
     return histogram
 
-def main(width=DEFAULT_WIDTH, height=DEFAULT_HEIGHT, bitstream_path=None, iterations=1000):
+def pack_uint8_to_uint32(image_data):
+    """将uint8打包成uint32"""
+    pixels_per_word = 4
+    image_size = len(image_data)
+    num_words = (image_size + pixels_per_word - 1) // pixels_per_word
+    
+    # Padding到4的倍数
+    padded_size = num_words * pixels_per_word
+    if len(image_data) < padded_size:
+        padding = padded_size - len(image_data)
+        image_data = np.append(image_data, np.zeros(padding, dtype=np.uint8))
+    
+    # 转换为uint32
+    packed_data = image_data.view(np.uint32)
+    return packed_data, num_words
+
+def main(iterations=1000):
     """
-    主函数：使用 PYNQ 通过 DMA 连接 FPGA IP 进行直方图计算
+    主函数
     
     参数:
-        width: 图像宽度
-        height: 图像高度
-        bitstream_path: bitstream文件路径（.bit文件）
-        iterations: 迭代次数（用于性能测试）
+        iterations: 迭代次数（默认1000次）
     """
-    print("\n=== Histogram Computation using AXI DMA ===")
-    print(f"Image size: {width}x{height} ({width * height / 1e6:.2f} MP)")
+    print("\n" + "="*70)
+    print("     Histogram Computation - Performance Test")
+    print("="*70)
+    print(f"Image size: {IMAGE_WIDTH}x{IMAGE_HEIGHT} = {IMAGE_SIZE} pixels")
     print(f"Iterations: {iterations}")
     
-    # --- 加载 overlay 和获取 DMA ---
-    if bitstream_path is None:
-        # 默认路径，需要根据实际情况修改
-        bitstream_path = '/home/xilinx/jupyter_notebooks/histogram_hls.bit'
+    # --- 加载overlay ---
+    print("\nLoading overlay...")
+    bitstream_path = '/home/ubuntu/finalProject/hyx.bit'
     
-    print(f"\nLoading overlay from: {bitstream_path}")
     try:
         overlay = Overlay(bitstream_path)
-        print("Overlay loaded successfully!")
+        print("✓ Overlay loaded!")
     except Exception as e:
-        print(f"Error loading overlay: {e}")
-        print("Please ensure the bitstream file exists and path is correct.")
+        print(f"✗ Error loading overlay: {e}")
+        print(f"  Please ensure {bitstream_path} exists")
         return False
     
-    # 检查可用的 DMA 实例
-    # print("Available IPs:", overlay.ip_dict)
-    # print("Available DMAs:", overlay.dma_dict)
-    
-    # 获取 DMA 实例（根据实际硬件配置修改名称）
-    # 通常名称类似于 'axi_dma_0' 或 'dma'
+    # --- 获取DMA ---
     try:
-        dma = overlay.axi_dma_0  # 根据实际硬件修改
-        print("DMA initialized successfully!")
+        dma = overlay.axi_dma_0
+        print("✓ DMA initialized!")
     except AttributeError:
-        print("Error: Could not find DMA instance 'axi_dma_0'")
-        print("Available attributes:", dir(overlay))
+        print("✗ Error: DMA not found!")
+        print("  Available components:", [x for x in dir(overlay) if not x.startswith('_')])
         return False
     
     # --- 生成测试图像 ---
-    print("\nGenerating test image...")
-    image_data = create_test_image(width, height)
-    image_size = width * height
-    print(f"Image generated: {image_size} pixels")
+    print("\n" + "-"*70)
+    print("Generating test image...")
+    image_data = create_test_image(IMAGE_WIDTH, IMAGE_HEIGHT)
+    print(f"✓ Generated {IMAGE_SIZE} pixels")
     
-    # --- 计算 CPU 参考结果 ---
-    print("\nCalculating CPU reference result...")
+    # --- CPU参考计算（只做一次）---
+    print("\nComputing CPU reference...")
     start_time = time.time()
     cpu_histogram = compute_histogram_cpu(image_data)
     cpu_time = time.time() - start_time
-    print(f"CPU computation time: {cpu_time:.6f} seconds")
+    print(f"✓ CPU time: {cpu_time:.6f} seconds")
     
-    # --- 分配 DMA 缓冲区 ---
+    # --- 数据打包 ---
+    print("\nPacking data (uint8 -> uint32)...")
+    packed_data, num_words = pack_uint8_to_uint32(image_data)
+    transfer_size = num_words * 4
+    print(f"✓ Original: {IMAGE_SIZE} pixels (uint8)")
+    print(f"✓ Packed: {num_words} words (uint32)")
+    print(f"✓ Transfer size: {transfer_size} bytes")
+    
+    # --- 分配DMA缓冲区 ---
     print("\nAllocating DMA buffers...")
-    # 输入缓冲区：图像数据（uint8）
-    tx_buffer = allocate(shape=(image_size,), dtype=np.uint8)
-    
-    # 输出缓冲区：直方图结果（uint32，256个bins）
+    tx_buffer = allocate(shape=(num_words,), dtype=np.uint32)
     rx_buffer = allocate(shape=(HISTOGRAM_BINS,), dtype=np.uint32)
+    print(f"✓ TX buffer: {tx_buffer.nbytes} bytes")
+    print(f"✓ RX buffer: {rx_buffer.nbytes} bytes")
     
     # --- 准备输入数据 ---
-    print("\nPreparing input data for DMA...")
-    tx_buffer[:] = image_data[:]
-    print(f"Input data prepared: {image_size} bytes")
+    print("\nPreparing input data...")
+    tx_buffer[:] = packed_data[:]
+    print("✓ Data copied to buffers")
     
-    # --- 性能测试：多次运行 ---
-    print(f"\nStarting FPGA acceleration ({iterations} iterations)...")
-    total_hw_time = 0.0
+    # --- 迭代测试 ---
+    print("\n" + "="*70)
+    print(f"Starting FPGA acceleration ({iterations} iterations)...")
+    print("="*70)
+    
+    hw_times = []
     success_count = 0
+    error_count = 0
     
-    for iter in range(iterations):
+    # 进度显示间隔
+    progress_interval = max(1, iterations // 10)  # 每10%显示一次
+    
+    for i in range(iterations):
         # 清零输出缓冲区
         rx_buffer[:] = 0
         
-        # 开始 DMA 传输
+        # DMA传输
         start_time = time.time()
         
         try:
-            # 启动发送和接收通道
             dma.sendchannel.transfer(tx_buffer)
             dma.recvchannel.transfer(rx_buffer)
             
-            # 等待传输完成
             dma.sendchannel.wait()
             dma.recvchannel.wait()
             
             hw_time = time.time() - start_time
-            total_hw_time += hw_time
+            hw_times.append(hw_time)
             success_count += 1
             
         except Exception as e:
-            print(f"Error during DMA transfer (iteration {iter}): {e}")
+            error_count += 1
+            print(f"\n✗ Error at iteration {i}: {e}")
+            if error_count > 10:
+                print("Too many errors, stopping...")
+                break
             continue
         
         # 显示进度
-        if (iter + 1) % 100 == 0 or iter == iterations - 1:
-            progress = (iter + 1) / iterations * 100
-            print(f"Progress: {iter + 1}/{iterations} ({progress:.1f}%)", end='\r')
+        if (i + 1) % progress_interval == 0 or i == iterations - 1:
+            progress = (i + 1) / iterations * 100
+            avg_time = np.mean(hw_times) if hw_times else 0
+            print(f"Progress: {i+1:4d}/{iterations} ({progress:5.1f}%) | "
+                  f"Avg time: {avg_time*1000:6.3f} ms | "
+                  f"Throughput: {IMAGE_SIZE/avg_time/1e6:5.2f} MP/s", end='\r')
     
     print()  # 换行
     
     if success_count == 0:
-        print("Error: All DMA transfers failed!")
+        print("\n✗ All iterations failed!")
+        tx_buffer.freebuffer()
+        rx_buffer.freebuffer()
         return False
     
-    avg_hw_time = total_hw_time / success_count
-    print(f"\nAverage FPGA time: {avg_hw_time:.6f} seconds ({avg_hw_time * 1000:.3f} ms)")
-    print(f"Throughput: {image_size / avg_hw_time / 1e6:.2f} MPixels/s")
+    # --- 统计结果 ---
+    hw_times = np.array(hw_times)
+    avg_hw_time = np.mean(hw_times)
+    min_hw_time = np.min(hw_times)
+    max_hw_time = np.max(hw_times)
+    std_hw_time = np.std(hw_times)
     
-    # --- 验证结果 ---
-    print("\n=== Verifying Results ===")
+    print("\n" + "="*70)
+    print("Performance Statistics:")
+    print("="*70)
+    print(f"Successful iterations: {success_count}/{iterations}")
+    print(f"Failed iterations:     {error_count}")
+    print(f"\nFPGA Time Statistics:")
+    print(f"  Average:   {avg_hw_time:.6f} s ({avg_hw_time * 1000:.3f} ms)")
+    print(f"  Minimum:   {min_hw_time:.6f} s ({min_hw_time * 1000:.3f} ms)")
+    print(f"  Maximum:   {max_hw_time:.6f} s ({max_hw_time * 1000:.3f} ms)")
+    print(f"  Std Dev:   {std_hw_time:.6f} s ({std_hw_time * 1000:.3f} ms)")
+    print(f"\nThroughput:")
+    print(f"  Average:   {IMAGE_SIZE / avg_hw_time / 1e6:.2f} MPixels/s")
+    print(f"  Peak:      {IMAGE_SIZE / min_hw_time / 1e6:.2f} MPixels/s")
+    
+    # --- 验证最后一次结果 ---
+    print("\n" + "="*70)
+    print("Verifying Last Iteration Result...")
+    print("="*70)
+    
     errors = 0
-    max_errors_to_show = 10
+    max_errors_show = 10
     
     for i in range(HISTOGRAM_BINS):
         hw_value = rx_buffer[i]
         cpu_value = cpu_histogram[i]
         
         if hw_value != cpu_value:
-            if errors < max_errors_to_show:
-                print(f"Mismatch at bin {i}: FPGA={hw_value}, CPU={cpu_value}")
+            if errors < max_errors_show:
+                diff = int(hw_value) - int(cpu_value)
+                print(f"  ✗ Bin {i:3d}: FPGA={hw_value:5d}, CPU={cpu_value:5d}, diff={diff:+d}")
             errors += 1
     
-    # --- 显示结果 ---
+    # --- 显示部分结果 ---
+    print("\n" + "-"*70)
+    print("Sample Results (first 10 bins):")
+    print("-"*70)
+    print(f"{'Bin':>5} {'FPGA':>10} {'CPU':>10} {'Status':>10}")
+    print("-"*70)
+    
+    for i in range(10):
+        match = "✓ Match" if rx_buffer[i] == cpu_histogram[i] else "✗ Mismatch"
+        print(f"{i:5d} {rx_buffer[i]:10d} {cpu_histogram[i]:10d} {match:>10}")
+    
+    # --- 显示统计信息 ---
+    print("\n" + "-"*70)
+    print("Correctness Check:")
+    print("-"*70)
+    total_cpu = np.sum(cpu_histogram)
+    total_fpga = np.sum(rx_buffer)
+    print(f"Total pixels (CPU):  {total_cpu}")
+    print(f"Total pixels (FPGA): {total_fpga}")
+    print(f"Expected:            {IMAGE_SIZE}")
+    
+    match = "✓" if total_cpu == total_fpga == IMAGE_SIZE else "✗"
+    print(f"Total count match:   {match}")
+    
+    # --- 最终结果 ---
+    print("\n" + "="*70)
     if errors == 0:
-        print("\n" + "="*50)
-        print("*       TEST PASSED!            *")
-        print("* Histogram computation correct *")
-        print("="*50)
+        print("              ✓✓✓ TEST PASSED! ✓✓✓")
+        print("        Histogram computation is correct!")
     else:
-        print(f"\n" + "="*50)
-        print(f"*       TEST FAILED!            *")
-        print(f"* Found {errors} mismatches           *")
-        print("="*50)
+        print(f"              ✗✗✗ TEST FAILED! ✗✗✗")
+        print(f"     Found {errors} mismatches out of {HISTOGRAM_BINS} bins")
+        print(f"              ({errors/HISTOGRAM_BINS*100:.1f}% error rate)")
+    print("="*70)
     
     # --- 性能对比 ---
-    print(f"\n=== Performance Comparison ===")
-    print(f"CPU time (1 iteration): {cpu_time:.6f} seconds ({cpu_time * 1000:.3f} ms)")
-    print(f"FPGA time (average): {avg_hw_time:.6f} seconds ({avg_hw_time * 1000:.3f} ms)")
+    print("\nPerformance Comparison:")
+    print("-"*70)
+    print(f"CPU time (1 iteration):  {cpu_time:.6f} s ({cpu_time * 1000:.3f} ms)")
+    print(f"FPGA time (average):     {avg_hw_time:.6f} s ({avg_hw_time * 1000:.3f} ms)")
     
-    if avg_hw_time > 0:
+    if avg_hw_time > 0 and cpu_time > 0:
         speedup = cpu_time / avg_hw_time
-        print(f"Speedup: {speedup:.2f}x")
+        print(f"Speedup:                 {speedup:.2f}x")
+        
+        if speedup < 1:
+            print("\nNote: FPGA slower than CPU due to:")
+            print("  - DMA transfer overhead dominates for small images")
+            print("  - CPU benefits from cache for repeated operations")
+            print("  - Try larger images (e.g., 256x256 or 512x512) for better speedup")
+        else:
+            print("\n✓ FPGA is faster than CPU!")
     
-    # 显示前10个直方图值
-    print("\nFirst 10 histogram values (FPGA):")
-    for i in range(min(10, HISTOGRAM_BINS)):
-        print(f"  Bin {i:3d}: {rx_buffer[i]:10u} (CPU: {cpu_histogram[i]:10u})")
+    # --- 总运行时间 ---
+    total_time = np.sum(hw_times)
+    print(f"\nTotal FPGA time ({success_count} iterations): {total_time:.3f} seconds")
+    print(f"Average time per iteration: {avg_hw_time * 1000:.3f} ms")
     
-    # --- 清理缓冲区 ---
+    # --- 清理 ---
     tx_buffer.freebuffer()
     rx_buffer.freebuffer()
     
     return errors == 0
 
 if __name__ == "__main__":
-    # 可以修改这些参数
-    WIDTH = 3840
-    HEIGHT = 2160
-    ITERATIONS = 1000
-    BITSTREAM_PATH = None  # 设置为 None 使用默认路径，或指定完整路径
+    # ===== 配置参数 =====
+    # 可以修改这个数字来改变迭代次数
+    ITERATIONS = 10000 # 运行1000次
     
-    success = main(
-        width=WIDTH,
-        height=HEIGHT,
-        bitstream_path=BITSTREAM_PATH,
-        iterations=ITERATIONS
-    )
     
-    exit(0 if success else 1)
-
-
+    success = main(iterations=ITERATIONS)
+    
+    if success:
+        print("\n" + "="*70)
+        print("           Program completed successfully!")
+        print("="*70 + "\n")
+        exit(0)
+    else:
+        print("\n" + "="*70)
+        print("               Program failed!")
+        print("="*70 + "\n")
+        exit(1)
